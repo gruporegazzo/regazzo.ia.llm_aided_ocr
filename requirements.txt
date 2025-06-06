@@ -12,5 +12,6 @@ pytesseract
 python-decouple
 ruff
 scikit-learn
+streamlit
 tiktoken
 transformers
