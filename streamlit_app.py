@@ -85,6 +85,12 @@ def main():
                 value=True,
                 help="Detect and preserve table structure in documents"
             )
+            
+            enhanced_payroll = st.sidebar.checkbox(
+                "Enhanced Payroll Parsing",
+                value=False,
+                help="Enable specialized parsing for government payroll documents (contra-cheques)"
+            )
         
         st.sidebar.subheader("🤖 LLM Configuration")
         if USE_LOCAL_LLM:
@@ -99,6 +105,7 @@ def main():
             os.environ['OCR_ENGINE'] = ocr_engine
             if ocr_engine == "PADDLEOCR":
                 os.environ['PADDLEOCR_USE_TABLE_RECOGNITION'] = str(use_table_recognition)
+                os.environ['PADDLEOCR_ENHANCED_PAYROLL_PARSING'] = str(enhanced_payroll)
             
             process_document_streamlit(
                 uploaded_file,

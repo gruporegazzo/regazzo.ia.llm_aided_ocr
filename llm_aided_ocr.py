@@ -49,6 +49,7 @@ USE_VERBOSE = False
 OCR_ENGINE = config.get("OCR_ENGINE", default="TESSERACT", cast=str)  # TESSERACT or PADDLEOCR
 PADDLEOCR_LANG = config.get("PADDLEOCR_LANG", default="pt", cast=str)
 PADDLEOCR_USE_TABLE_RECOGNITION = config.get("PADDLEOCR_USE_TABLE_RECOGNITION", default=True, cast=bool)
+PADDLEOCR_ENHANCED_PAYROLL_PARSING = config.get("PADDLEOCR_ENHANCED_PAYROLL_PARSING", default=False, cast=bool)
 
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -435,12 +436,12 @@ def get_paddleocr_instance():
     if _paddleocr_instance is None:
         try:
             from paddleocr import PaddleOCR
+            lang = 'en' if PADDLEOCR_LANG == 'pt' else PADDLEOCR_LANG
             _paddleocr_instance = PaddleOCR(
-                lang=PADDLEOCR_LANG,
-                use_angle_cls=True,
-                use_gpu=GPU_AVAILABLE,
-                show_log=False
+                lang=lang,
+                use_angle_cls=True
             )
+            logging.info(f"PaddleOCR initialized with GPU: {GPU_AVAILABLE}, Language: {lang}")
         except ImportError:
             logging.error("PaddleOCR not installed. Please install with: pip install paddleocr")
             raise
@@ -456,46 +457,110 @@ def ocr_image_paddleocr(image):
         else:
             image_array = np.array(image)
         
-        # Perform OCR
-        result = ocr.ocr(image_array, cls=True)
+        result = ocr.ocr(image_array)
         
         if not result or not result[0]:
+            logging.error("PaddleOCR returned no result")
             return ""
         
         text_blocks = []
-        for line in result[0]:
-            if line:
-                bbox, (text, confidence) = line
+        ocr_result = result[0]
+        
+        if hasattr(ocr_result, 'keys') and 'rec_texts' in ocr_result:
+            texts = ocr_result['rec_texts']
+            boxes = ocr_result.get('rec_boxes', [])
+            scores = ocr_result.get('rec_scores', [1.0] * len(texts))
+            
+            logging.info(f"Found {len(texts)} text elements from OCRResult dictionary")
+            
+            for i, text in enumerate(texts):
+                confidence = scores[i] if i < len(scores) else 1.0
+                box = boxes[i] if i < len(boxes) else [[0, 0], [0, 0], [0, 0], [0, 0]]
+                
                 if confidence > 0.5:  # Filter low confidence results
                     text_blocks.append({
                         'text': text,
-                        'bbox': bbox,
+                        'bbox': box,
                         'confidence': confidence
                     })
         
-        text_blocks.sort(key=lambda x: (x['bbox'][0][1], x['bbox'][0][0]))
+        elif isinstance(ocr_result, list):
+            for line in ocr_result:
+                if line and len(line) >= 2:
+                    bbox = line[0]
+                    text_info = line[1]
+                    if isinstance(text_info, (list, tuple)) and len(text_info) >= 2:
+                        text, confidence = text_info[0], text_info[1]
+                    else:
+                        text, confidence = str(text_info), 1.0
+                    
+                    if confidence > 0.5:
+                        text_blocks.append({
+                            'text': text,
+                            'bbox': bbox,
+                            'confidence': confidence
+                        })
+        
+        if not text_blocks:
+            logging.error("No text blocks extracted from PaddleOCR result")
+            return ""
+        
+        def safe_sort_key(block):
+            bbox = block['bbox']
+            try:
+                if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+                    if isinstance(bbox[0], (list, tuple)):
+                        return (bbox[0][1], bbox[0][0])  # y, x coordinates
+                    else:
+                        return (bbox[1], bbox[0])
+                else:
+                    return (0, 0)
+            except (IndexError, TypeError):
+                return (0, 0)
+        
+        text_blocks.sort(key=safe_sort_key)
         
         if PADDLEOCR_USE_TABLE_RECOGNITION:
-            return format_table_structure(text_blocks)
+            if PADDLEOCR_ENHANCED_PAYROLL_PARSING:
+                extracted_text = format_table_structure(text_blocks)
+                payroll_rows = parse_payroll_structure([extracted_text])
+                if payroll_rows:
+                    return format_enhanced_payroll_output(payroll_rows)
+                else:
+                    return format_table_structure(text_blocks)
+            else:
+                return format_table_structure(text_blocks)
         else:
             return "\n".join([block['text'] for block in text_blocks])
             
     except Exception as e:
         logging.error(f"PaddleOCR processing failed: {e}")
+        import traceback
+        traceback.print_exc()
         return ocr_image_tesseract(image)
 
-def format_table_structure(text_blocks):
+def format_table_structure(text_blocks, separator="|"):
     """Format text blocks into table-like structure for payroll documents"""
     if not text_blocks:
         return ""
     
+    def get_y_coord(bbox):
+        if isinstance(bbox, (list, tuple)) and len(bbox) >= 2:
+            return bbox[1] if len(bbox) >= 4 else bbox[1]
+        return 0
+    
+    def get_x_coord(bbox):
+        if isinstance(bbox, (list, tuple)) and len(bbox) >= 1:
+            return bbox[0]
+        return 0
+    
     rows = []
     current_row = []
-    current_y = text_blocks[0]['bbox'][0][1]
-    y_threshold = 10  # pixels tolerance for same row
+    current_y = get_y_coord(text_blocks[0]['bbox'])
+    y_threshold = 15
     
     for block in text_blocks:
-        block_y = block['bbox'][0][1]
+        block_y = get_y_coord(block['bbox'])
         if abs(block_y - current_y) <= y_threshold:
             current_row.append(block)
         else:
@@ -509,9 +574,86 @@ def format_table_structure(text_blocks):
     
     formatted_lines = []
     for row in rows:
-        row.sort(key=lambda x: x['bbox'][0][0])
-        row_text = " | ".join([block['text'] for block in row])
+        row.sort(key=lambda x: get_x_coord(x['bbox']))
+        row_text = f" {separator} ".join([block['text'] for block in row])
         formatted_lines.append(row_text)
+    
+    return "\n".join(formatted_lines)
+
+def parse_payroll_structure(texts, separator="|"):
+    """Parse extracted text into payroll structure matching CSV format"""
+    payroll_rows = []
+    
+    for text in texts:
+        lines = text.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            if any(pattern in line.lower() for pattern in [
+                'salário', 'gratificação', 'auxílio', 'imposto', 'banco', 
+                'desconto', 'vantagem', 'adicional', 'base'
+            ]):
+                parsed_row = parse_payroll_line(line, separator)
+                if parsed_row:
+                    payroll_rows.append(parsed_row)
+    
+    return payroll_rows
+
+def parse_payroll_line(line, separator="|"):
+    """Parse individual payroll line into structured format"""
+    pipe_pattern = r'([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)'
+    match = re.search(pipe_pattern, line)
+    
+    if match:
+        return {
+            'Descricao': match.group(1).strip(),
+            'Quantidade': match.group(2).strip(),
+            'Unidade': match.group(3).strip(),
+            'Vantagens': match.group(4).strip(),
+            'Descontos': match.group(5).strip()
+        }
+    
+    semicolon_pattern = r'([^;]+);([^;]*);([^;]*);([^;]*);([^;]*)'
+    match = re.search(semicolon_pattern, line)
+    
+    if match:
+        return {
+            'Descricao': match.group(1).strip(),
+            'Quantidade': match.group(2).strip(),
+            'Unidade': match.group(3).strip(),
+            'Vantagens': match.group(4).strip(),
+            'Descontos': match.group(5).strip()
+        }
+    
+    if any(keyword in line.lower() for keyword in ['salário', 'gratificação', 'auxílio']):
+        return {
+            'Descricao': line,
+            'Quantidade': '',
+            'Unidade': '',
+            'Vantagens': '',
+            'Descontos': ''
+        }
+    
+    return None
+
+def format_enhanced_payroll_output(payroll_rows, separator=";"):
+    """Format parsed payroll rows into CSV-like output"""
+    if not payroll_rows:
+        return ""
+    
+    formatted_lines = []
+    for row in payroll_rows:
+        line = separator.join([
+            row.get('Descricao', ''),
+            row.get('Quantidade', ''),
+            row.get('Unidade', ''),
+            row.get('Vantagens', ''),
+            row.get('Descontos', '')
+        ])
+        formatted_lines.append(line)
     
     return "\n".join(formatted_lines)
 
