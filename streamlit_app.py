@@ -17,7 +17,8 @@ from llm_aided_ocr import (
     USE_LOCAL_LLM,
     API_PROVIDER,
     DEFAULT_LOCAL_MODEL_NAME,
-    OPENAI_EMBEDDING_MODEL
+    OPENAI_EMBEDDING_MODEL,
+    OCR_ENGINE
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -70,6 +71,21 @@ def main():
             help="Automatically remove headers, footers, and page numbers"
         )
         
+        st.sidebar.subheader("🔍 OCR Engine")
+        ocr_engine = st.sidebar.selectbox(
+            "Select OCR Engine",
+            ["TESSERACT", "PADDLEOCR"],
+            index=0 if OCR_ENGINE.upper() == "TESSERACT" else 1,
+            help="Choose between Tesseract (fast) or PaddleOCR (better for tables and complex layouts)"
+        )
+        
+        if ocr_engine == "PADDLEOCR":
+            use_table_recognition = st.sidebar.checkbox(
+                "Enable table recognition",
+                value=True,
+                help="Detect and preserve table structure in documents"
+            )
+        
         st.sidebar.subheader("🤖 LLM Configuration")
         if USE_LOCAL_LLM:
             st.sidebar.info(f"Using Local LLM: {DEFAULT_LOCAL_MODEL_NAME}")
@@ -79,6 +95,11 @@ def main():
                 st.sidebar.info(f"Embedding Model: {OPENAI_EMBEDDING_MODEL}")
         
         if st.button("🚀 Process Document", type="primary"):
+            import os
+            os.environ['OCR_ENGINE'] = ocr_engine
+            if ocr_engine == "PADDLEOCR":
+                os.environ['PADDLEOCR_USE_TABLE_RECOGNITION'] = str(use_table_recognition)
+            
             process_document_streamlit(
                 uploaded_file,
                 max_test_pages,
@@ -96,7 +117,8 @@ def main():
             st.markdown("""
             **📄 PDF Processing**
             - Convert PDF pages to images
-            - Advanced OCR with Tesseract
+            - Advanced OCR with Tesseract or PaddleOCR
+            - Table structure recognition (PaddleOCR)
             - Configurable page range processing
             """)
             

@@ -45,6 +45,11 @@ DEFAULT_LOCAL_MODEL_NAME = "Llama-3.1-8B-Lexi-Uncensored_Q5_fixedrope.gguf"
 LOCAL_LLM_CONTEXT_SIZE_IN_TOKENS = 2048
 USE_VERBOSE = False
 
+# OCR Engine Configuration
+OCR_ENGINE = config.get("OCR_ENGINE", default="TESSERACT", cast=str)  # TESSERACT or PADDLEOCR
+PADDLEOCR_LANG = config.get("PADDLEOCR_LANG", default="pt", cast=str)
+PADDLEOCR_USE_TABLE_RECOGNITION = config.get("PADDLEOCR_USE_TABLE_RECOGNITION", default=True, cast=bool)
+
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 warnings.filterwarnings("ignore", category=FutureWarning)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -423,9 +428,104 @@ def convert_pdf_to_images(input_pdf_file_path: str, max_pages: int = 0, skip_fir
     logging.info(f"Converted {len(images)} pages from PDF file to images.")
     return images
 
-def ocr_image(image):
+_paddleocr_instance = None
+
+def get_paddleocr_instance():
+    global _paddleocr_instance
+    if _paddleocr_instance is None:
+        try:
+            from paddleocr import PaddleOCR
+            _paddleocr_instance = PaddleOCR(
+                lang=PADDLEOCR_LANG,
+                use_angle_cls=True,
+                use_gpu=GPU_AVAILABLE,
+                show_log=False
+            )
+        except ImportError:
+            logging.error("PaddleOCR not installed. Please install with: pip install paddleocr")
+            raise
+    return _paddleocr_instance
+
+def ocr_image_paddleocr(image):
+    """Extract text using PaddleOCR with table recognition support"""
+    try:
+        ocr = get_paddleocr_instance()
+        
+        if hasattr(image, 'convert'):
+            image_array = np.array(image.convert('RGB'))
+        else:
+            image_array = np.array(image)
+        
+        # Perform OCR
+        result = ocr.ocr(image_array, cls=True)
+        
+        if not result or not result[0]:
+            return ""
+        
+        text_blocks = []
+        for line in result[0]:
+            if line:
+                bbox, (text, confidence) = line
+                if confidence > 0.5:  # Filter low confidence results
+                    text_blocks.append({
+                        'text': text,
+                        'bbox': bbox,
+                        'confidence': confidence
+                    })
+        
+        text_blocks.sort(key=lambda x: (x['bbox'][0][1], x['bbox'][0][0]))
+        
+        if PADDLEOCR_USE_TABLE_RECOGNITION:
+            return format_table_structure(text_blocks)
+        else:
+            return "\n".join([block['text'] for block in text_blocks])
+            
+    except Exception as e:
+        logging.error(f"PaddleOCR processing failed: {e}")
+        return ocr_image_tesseract(image)
+
+def format_table_structure(text_blocks):
+    """Format text blocks into table-like structure for payroll documents"""
+    if not text_blocks:
+        return ""
+    
+    rows = []
+    current_row = []
+    current_y = text_blocks[0]['bbox'][0][1]
+    y_threshold = 10  # pixels tolerance for same row
+    
+    for block in text_blocks:
+        block_y = block['bbox'][0][1]
+        if abs(block_y - current_y) <= y_threshold:
+            current_row.append(block)
+        else:
+            if current_row:
+                rows.append(current_row)
+            current_row = [block]
+            current_y = block_y
+    
+    if current_row:
+        rows.append(current_row)
+    
+    formatted_lines = []
+    for row in rows:
+        row.sort(key=lambda x: x['bbox'][0][0])
+        row_text = " | ".join([block['text'] for block in row])
+        formatted_lines.append(row_text)
+    
+    return "\n".join(formatted_lines)
+
+def ocr_image_tesseract(image):
+    """Original Tesseract implementation"""
     preprocessed_image = preprocess_image(image)
     return pytesseract.image_to_string(preprocessed_image)
+
+def ocr_image(image):
+    """Extract text from image using configured OCR engine"""
+    if OCR_ENGINE.upper() == "PADDLEOCR":
+        return ocr_image_paddleocr(image)
+    else:
+        return ocr_image_tesseract(image)
 
 async def process_chunk(chunk: str, prev_context: str, chunk_index: int, total_chunks: int, reformat_as_markdown: bool, suppress_headers_and_page_numbers: bool) -> Tuple[str, str]:
     logging.info(f"Processing chunk {chunk_index + 1}/{total_chunks} (length: {len(chunk):,} characters)")
@@ -645,7 +745,11 @@ async def main():
         llm_corrected_output_file_path = base_name + '_llm_corrected' + output_extension
 
         list_of_scanned_images = convert_pdf_to_images(input_pdf_file_path, max_test_pages, skip_first_n_pages)
-        logging.info(f"Tesseract version: {pytesseract.get_tesseract_version()}")
+        logging.info(f"Using OCR Engine: {OCR_ENGINE}")
+        if OCR_ENGINE.upper() == "TESSERACT":
+            logging.info(f"Tesseract version: {pytesseract.get_tesseract_version()}")
+        else:
+            logging.info(f"PaddleOCR language: {PADDLEOCR_LANG}, Table recognition: {PADDLEOCR_USE_TABLE_RECOGNITION}")
         logging.info("Extracting text from converted pages...")
         with ThreadPoolExecutor() as executor:
             list_of_extracted_text_strings = list(executor.map(ocr_image, list_of_scanned_images))
