@@ -191,6 +191,28 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Option 1: Streamlit Web Interface (Recommended)
+
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Run the Streamlit app:
+   ```bash
+   streamlit run streamlit_app.py
+   ```
+
+3. Open your browser to the provided URL (typically http://localhost:8501)
+
+4. Upload a PDF file and configure processing parameters in the sidebar
+
+5. Click "Process Document" to start the OCR and LLM processing
+
+6. Download the processed results directly from the interface
+
+### Option 2: Command Line Interface
+
 1. Place your PDF file in the project directory.
 
 2. Update the `input_pdf_file_path` variable in the `main()` function with your PDF filename.
