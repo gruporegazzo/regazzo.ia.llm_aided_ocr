@@ -15,3 +15,4 @@ scikit-learn
 streamlit
 tiktoken
 transformers
+paddleocr

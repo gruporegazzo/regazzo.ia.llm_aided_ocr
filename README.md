@@ -189,6 +189,31 @@ pip install -r requirements.txt
    ANTHROPIC_API_KEY=your_anthropic_api_key
    ```
 
+## OCR Engine Options
+
+This project supports two OCR engines:
+
+- **Tesseract**: Fast and reliable OCR engine (default)
+- **PaddleOCR**: Advanced OCR with table structure recognition, ideal for payroll documents and complex layouts
+
+### Configuration
+
+Configure the OCR engine in your `.env` file:
+
+```env
+# OCR Engine Configuration
+OCR_ENGINE=TESSERACT          # Options: TESSERACT or PADDLEOCR
+PADDLEOCR_LANG=pt            # Language for PaddleOCR (Portuguese)
+PADDLEOCR_USE_TABLE_RECOGNITION=True  # Enable table structure detection
+```
+
+### PaddleOCR Features
+
+- **Table Recognition**: Automatically detects and preserves table structure
+- **Portuguese Language Support**: Optimized for Portuguese text recognition
+- **Complex Layout Handling**: Better performance on documents with mixed layouts
+- **Payroll Document Processing**: Specialized for government payroll documents (holerites)
+
 ## Usage
 
 ### Option 1: Streamlit Web Interface (Recommended)
@@ -205,7 +230,10 @@ pip install -r requirements.txt
 
 3. Open your browser to the provided URL (typically http://localhost:8501)
 
-4. Upload a PDF file and configure processing parameters in the sidebar
+4. Upload a PDF file and configure processing parameters in the sidebar:
+   - Select OCR engine (Tesseract or PaddleOCR)
+   - Enable table recognition for PaddleOCR
+   - Configure page processing options
 
 5. Click "Process Document" to start the OCR and LLM processing
 
@@ -215,11 +243,28 @@ pip install -r requirements.txt
 
 1. Place your PDF file in the project directory.
 
-2. Update the `input_pdf_file_path` variable in the `main()` function with your PDF filename.
-
-3. Run the script:
+2. Configure OCR engine in `.env` file (optional):
+   ```bash
+   OCR_ENGINE=PADDLEOCR  # Use PaddleOCR instead of Tesseract
    ```
+
+3. Update the `input_pdf_file_path` variable in the `main()` function with your PDF filename.
+
+4. Run the script:
+   ```bash
    python llm_aided_ocr.py
+   ```
+
+### OCR Engine Comparison
+
+| Feature | Tesseract | PaddleOCR |
+|---------|-----------|-----------|
+| Speed | Fast | Moderate |
+| Table Recognition | Basic | Advanced |
+| Complex Layouts | Good | Excellent |
+| Portuguese Support | Good | Excellent |
+| Payroll Documents | Good | Optimized |
+| GPU Acceleration | No | Yes |
    ```
 
 4. The script will generate several output files, including the final post-processed text.
