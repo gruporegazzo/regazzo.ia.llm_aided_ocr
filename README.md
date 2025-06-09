@@ -1,6 +1,39 @@
 # LLM-Aided OCR Project
 
-## Introduction
+## Como Executar
+
+### Opção 1: Interface Web Streamlit (Recomendado)
+
+1. Instalar dependências:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Executar a aplicação Streamlit:
+   ```bash
+   streamlit run streamlit_app.py
+   ```
+
+3. Abrir o navegador no URL fornecido (normalmente http://localhost:8501)
+
+4. Fazer upload de arquivo PDF e configurar parâmetros na barra lateral:
+   - Selecionar motor OCR (Tesseract ou PaddleOCR)
+   - Ativar reconhecimento de tabelas para PaddleOCR
+   - Ativar parsing aprimorado para documentos de holerite
+   - Configurar opções de processamento de páginas
+
+5. Clicar em "Process Document" para iniciar o processamento OCR e LLM
+
+6. Baixar os resultados processados diretamente da interface
+
+### Opção 2: Linha de Comando
+
+1. Colocar arquivo PDF no diretório do projeto
+2. Configurar motor OCR no arquivo .env (opcional)
+3. Atualizar variável `input_pdf_file_path` na função `main()`
+4. Executar: `python llm_aided_ocr.py`
+
+## Introdução
 
 The LLM-Aided OCR Project is an advanced system designed to significantly enhance the quality of Optical Character Recognition (OCR) output. By leveraging cutting-edge natural language processing techniques and large language models (LLMs), this project transforms raw OCR text into highly accurate, well-formatted, and readable documents.
 
@@ -205,6 +238,7 @@ Configure the OCR engine in your `.env` file:
 OCR_ENGINE=TESSERACT          # Options: TESSERACT or PADDLEOCR
 PADDLEOCR_LANG=pt            # Language for PaddleOCR (Portuguese)
 PADDLEOCR_USE_TABLE_RECOGNITION=True  # Enable table structure detection
+PADDLEOCR_ENHANCED_PAYROLL_PARSING=False  # Enable enhanced payroll parsing
 ```
 
 ### PaddleOCR Features
@@ -214,46 +248,18 @@ PADDLEOCR_USE_TABLE_RECOGNITION=True  # Enable table structure detection
 - **Complex Layout Handling**: Better performance on documents with mixed layouts
 - **Payroll Document Processing**: Specialized for government payroll documents (holerites)
 
-## Usage
+### Enhanced Payroll Parsing
 
-### Option 1: Streamlit Web Interface (Recommended)
+- **Intelligent Pattern Recognition**: Automatically detects payroll-specific patterns and keywords
+- **Multi-format Support**: Handles both pipe (|) and semicolon (;) separated formats
+- **Government Document Optimization**: Specialized parsing for Brazilian government payroll documents
+- **Structured Output**: Converts extracted text into proper CSV format with columns: Descricao;Quantidade;Unidade;Vantagens;Descontos
+- **Error Recovery**: Robust fallback mechanisms for partially corrupted text
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. Run the Streamlit app:
-   ```bash
-   streamlit run streamlit_app.py
-   ```
-
-3. Open your browser to the provided URL (typically http://localhost:8501)
-
-4. Upload a PDF file and configure processing parameters in the sidebar:
-   - Select OCR engine (Tesseract or PaddleOCR)
-   - Enable table recognition for PaddleOCR
-   - Configure page processing options
-
-5. Click "Process Document" to start the OCR and LLM processing
-
-6. Download the processed results directly from the interface
-
-### Option 2: Command Line Interface
-
-1. Place your PDF file in the project directory.
-
-2. Configure OCR engine in `.env` file (optional):
-   ```bash
-   OCR_ENGINE=PADDLEOCR  # Use PaddleOCR instead of Tesseract
-   ```
-
-3. Update the `input_pdf_file_path` variable in the `main()` function with your PDF filename.
-
-4. Run the script:
-   ```bash
-   python llm_aided_ocr.py
-   ```
+Configure enhanced payroll parsing in your `.env` file:
+```env
+PADDLEOCR_ENHANCED_PAYROLL_PARSING=True  # Enable enhanced payroll parsing
+```
 
 ### OCR Engine Comparison
 
@@ -264,10 +270,55 @@ PADDLEOCR_USE_TABLE_RECOGNITION=True  # Enable table structure detection
 | Complex Layouts | Good | Excellent |
 | Portuguese Support | Good | Excellent |
 | Payroll Documents | Good | Optimized |
+| Enhanced Payroll Parsing | No | Yes |
 | GPU Acceleration | No | Yes |
-   ```
 
-4. The script will generate several output files, including the final post-processed text.
+## Arquitetura do Projeto
+
+### Pipeline de Processamento
+
+1. **Conversão PDF → Imagens**
+   - Função: `convert_pdf_to_images()`
+   - Biblioteca: `pdf2image`
+   - Suporte a processamento de páginas específicas
+
+2. **Extração OCR**
+   - **Tesseract**: Rápido e confiável (padrão)
+   - **PaddleOCR**: Avançado com reconhecimento de tabelas
+   - **Enhanced Payroll Parsing**: Parsing especializado para holerites
+
+3. **Processamento LLM**
+   - Correção de erros OCR
+   - Formatação Markdown (opcional)
+   - Remoção de cabeçalhos/rodapés (opcional)
+   - Processamento assíncrono para APIs
+
+4. **Avaliação de Qualidade**
+   - Comparação automática entre texto original e processado
+   - Pontuação de qualidade baseada em LLM
+
+### Motores OCR Suportados
+
+#### Tesseract
+- Processamento rápido e eficiente
+- Boa precisão para documentos padrão
+- Pré-processamento de imagem integrado
+
+#### PaddleOCR
+- Reconhecimento avançado de estruturas tabulares
+- Suporte otimizado para português
+- Processamento de layouts complexos
+- **Enhanced Payroll Parsing**: Parsing inteligente para contra-cheques governamentais
+
+### Enhanced Payroll Parsing
+
+O sistema de parsing aprimorado para holerites inclui:
+
+- **Detecção de Padrões**: Reconhece automaticamente códigos de 4 dígitos e descrições
+- **Múltiplos Formatos**: Suporta separadores pipe (|) e ponto-e-vírgula (;)
+- **Estruturação CSV**: Organiza dados em formato: Descricao;Quantidade;Unidade;Vantagens;Descontos
+- **Palavras-chave**: Identifica termos específicos como 'salário', 'gratificação', 'auxílio', etc.
+- **Recuperação de Erros**: Mecanismos robustos para texto parcialmente corrompido
 
 ## How It Works
 
